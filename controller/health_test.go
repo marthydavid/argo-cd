@@ -237,8 +237,10 @@ func TestSetApplicationHealth_AllMissingResources(t *testing.T) {
 	healthStatus, healthCauses, err := setApplicationHealth(resources, resourceStatuses, lua.ResourceHealthOverrides{}, app, true)
 	require.NoError(t, err)
 	assert.Equal(t, health.HealthStatusMissing, healthStatus)
-	// The Missing app health from the all-missing fallback does not attribute individual causes.
-	assert.Empty(t, healthCauses)
+	// Pod has a built-in health check, so each target-only Pod aggregates as Missing on its own
+	// (#27917). The all-missing fallback is then not what makes the app Missing, and both Pods are
+	// reported as the cause.
+	assert.Equal(t, "Caused by Pod:default/pod, Pod:default/pod2", healthCauses)
 }
 
 func TestSetApplicationHealth_AllMissingResources_WithHooks(t *testing.T) {
@@ -248,7 +250,7 @@ func TestSetApplicationHealth_AllMissingResources_WithHooks(t *testing.T) {
 	pod2.SetAnnotations(map[string]string{synccommon.AnnotationKeyHook: string(synccommon.HookTypeSync)})
 
 	resources := []managedResource{{
-		Group: "", Version: "v1", Kind: "Pod", Target: &pod,
+		Group: "", Version: "v1", Kind: "Pod", Namespace: "default", Name: "pod", Target: &pod,
 	}, {
 		Group: "", Version: "v1", Kind: "Pod", Target: pod2, Live: pod2,
 	}}
@@ -257,8 +259,9 @@ func TestSetApplicationHealth_AllMissingResources_WithHooks(t *testing.T) {
 	healthStatus, healthCauses, err := setApplicationHealth(resources, resourceStatuses, lua.ResourceHealthOverrides{}, app, true)
 	require.NoError(t, err)
 	assert.Equal(t, health.HealthStatusMissing, healthStatus)
-	// The all-missing fallback does not attribute individual causes.
-	assert.Empty(t, healthCauses)
+	// The hook is not aggregated; the target-only Pod has a built-in health check (#27917), so it is
+	// Missing on its own and is the cause.
+	assert.Equal(t, "Caused by Pod:default/pod", healthCauses)
 }
 
 func TestSetApplicationHealth_MultipleCauses(t *testing.T) {
